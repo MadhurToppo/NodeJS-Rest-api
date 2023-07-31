@@ -1,8 +1,13 @@
 import express, { Request, Response } from "express";
 import { v4 as uuid } from "uuid";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 const port = 3000;
+const jwtSecret = process.env.JWT_SECRET || "my-secret";
 
 app.use(express.json());
 
@@ -17,7 +22,42 @@ let todos: Todo[] = [
   { id: uuid(), title: "Build a REST API", completed: false },
 ];
 
-app.post("/todos", (req: Request, res: Response) => {
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: string;
+  }
+}
+
+const authenticateJWT = (req: Request, res: Response, next: Function) => {
+  const token = req.header("Authorization");
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  jwt.verify(token, jwtSecret, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    req.user = user;
+    next();
+  });
+};
+
+app.post("/login", (req: Request, res: Response) => {
+  const { username, password } = req.body;
+
+  if (username === "user" && password === "password") {
+    const user = { username: "user" };
+    const token = jwt.sign(user, jwtSecret);
+    return res.json({ token });
+  } else {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+});
+
+app.post("/todos", authenticateJWT, (req: Request, res: Response) => {
   const { title } = req.body;
   if (!title) {
     return res.status(400).json({ error: "Title is required" });
@@ -28,7 +68,7 @@ app.post("/todos", (req: Request, res: Response) => {
   res.status(201).json(newTodo);
 });
 
-app.get("/todos", (req: Request, res: Response) => {
+app.get("/todos", authenticateJWT, (req: Request, res: Response) => {
   res.json(todos);
 });
 
@@ -43,7 +83,7 @@ app.get("/todos/:id", (req: Request, res: Response) => {
   res.json(todo);
 });
 
-app.put("/todos/:id", (req: Request, res: Response) => {
+app.put("/todos/:id", authenticateJWT, (req: Request, res: Response) => {
   const id = req.params.id;
   const { title, completed } = req.body;
   const todoIndex = todos.findIndex((item) => item.id === id);
@@ -56,7 +96,7 @@ app.put("/todos/:id", (req: Request, res: Response) => {
   res.json(todos[todoIndex]);
 });
 
-app.delete("/todos/:id", (req: Request, res: Response) => {
+app.delete("/todos/:id", authenticateJWT, (req: Request, res: Response) => {
   const id = req.params.id;
   const todoIndex = todos.findIndex((item) => item.id === id);
 
